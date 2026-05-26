@@ -6,7 +6,6 @@ def load_scaled_image(path, size=64, as_pixmap=True):
     if path and os.path.exists(path):
         pixmap = QPixmap(path)
     else:
-        # Генерация заглушки
         pixmap = QPixmap(size, size)
         pixmap.fill(QColor(200, 200, 200))
     if pixmap.isNull():

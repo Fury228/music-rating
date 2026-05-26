@@ -10,8 +10,7 @@ def main():
     if not lock_file.tryLock(0):
         QMessageBox.critical(None, "Уже запущено", "Приложение уже запущено.")
         sys.exit(1)
-    
-    os.makedirs("imgs", exist_ok=True)
+
     db.init_db()
     
     app = QApplication(sys.argv)
