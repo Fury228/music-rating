@@ -54,11 +54,7 @@ class ArtistDialog(QDialog):
     def select_image(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать изображение", "", "Images (*.png *.jpg *.jpeg *.bmp)")
         if file_path:
-            os.makedirs("imgs/artists", exist_ok=True)
-            new_name = f"artist_{self.artist_id if self.artist_id else 'temp'}_{os.path.basename(file_path)}"
-            dest = os.path.join("imgs/artists", new_name)
-            shutil.copy2(file_path, dest)
-            self.photo_path = os.path.join("artists", new_name)
+            self.photo_path = file_path
             pix = img.load_scaled_image(self.photo_path, size=128)
             self.preview_label.setPixmap(pix)
 

@@ -1,6 +1,19 @@
 import sqlite3
+import os
+import sys
+from pathlib import Path
 
-DB_NAME = "music_ratings.db"
+def get_app_data_dir():
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        app_dir = os.path.join(base, "MusicRating")
+    else:
+        base = os.path.expanduser("~/.local/share")
+        app_dir = os.path.join(base, "MusicRating")
+    os.makedirs(app_dir, exist_ok=True)
+    return app_dir
+
+DB_NAME = os.path.join(get_app_data_dir(), "music_ratings.db")
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)

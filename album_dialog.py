@@ -159,11 +159,7 @@ class AlbumDialog(QDialog):
     def select_cover(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать обложку", "", "Images (*.png *.jpg *.jpeg *.bmp)")
         if file_path:
-            os.makedirs("imgs/albums", exist_ok=True)
-            new_name = f"cover_{self.album_id if self.album_id else 'temp'}_{os.path.basename(file_path)}"
-            dest = os.path.join("imgs/albums", new_name)
-            shutil.copy2(file_path, dest)
-            self.cover_path = os.path.join("albums", new_name)
+            self.cover_path = file_path
             pix = img.load_scaled_image(self.cover_path, size=128)
             self.cover_label.setPixmap(pix)
 
