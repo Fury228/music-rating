@@ -15,15 +15,26 @@ from rating_dialog import RatingDialog
 from artist_albums_dialog import ArtistAlbumsDialog
 from album_rating_view import AlbumRatingViewDialog
 
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QPainter, QLinearGradient, QColor
+from PySide6.QtCore import QTimer
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Музыкальный рейтинг")
+        self.setWindowIcon(QIcon(resource_path("app_icon.ico")))
         self.setMinimumSize(1000, 600)
 
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
+
 
         btn_layout = QHBoxLayout()
         self.btn_artists = QPushButton("Артисты")
