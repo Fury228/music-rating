@@ -1,0 +1,11 @@
+/__pycache__
+*.pyc
+*.pyo
+
+/imgs/artists
+/imgs/albums
+!imgs/none.png
+
+/venv
+
+*.db
