@@ -2,10 +2,14 @@
 *.pyc
 *.pyo
 
+/build
+
+/dist
+
 /imgs/artists
 /imgs/albums
 !imgs/none.png
 
 /venv
 
-*.db
+MusicRating.spec
