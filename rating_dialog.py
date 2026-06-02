@@ -1,11 +1,54 @@
 import sqlite3
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
-    QGroupBox, QLineEdit, QTableWidget, QDoubleSpinBox, QMessageBox,
-    QHeaderView, QWidget
+    QLineEdit, QTableWidget, QDoubleSpinBox, QMessageBox,
+    QHeaderView, QWidget, QTabWidget, QAbstractSpinBox
 )
 from PySide6.QtCore import Qt
 import database as db
+from custom_dialogs import show_question
+
+
+class RatingSpinBox(QDoubleSpinBox):
+    def __init__(self, column_index, parent_table, parent=None):
+        super().__init__(parent)
+        self.column_index = column_index
+        self.parent_table = parent_table
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.setRange(0, 11)
+        self.setSingleStep(0.1)
+        self.setDecimals(1)
+        self.setValue(0.0)
+        self.previous_value = 0.0
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+    def stepBy(self, steps):
+        pass
+
+    def focusOutEvent(self, event):
+        self.validate_value()
+        super().focusOutEvent(event)
+
+    def validate_value(self):
+        current = self.value()
+        n_rows = self.parent_table.rowCount()
+        eleven_count = 0
+        for row in range(n_rows):
+            spin = self.parent_table.cellWidget(row, self.column_index)
+            if spin and spin.value() == 11.0:
+                eleven_count += 1
+        if current == 11.0 and eleven_count > 1:
+            QMessageBox.warning(self, "Ошибка", "Каждый участник может использовать оценку 11 только один раз за альбом.")
+            self.setValue(self.previous_value)
+        else:
+            self.previous_value = current
+
+    def valueChanged(self, value):
+        self.validate_value()
+        super().valueChanged.emit(value)
+
 
 class RatingDialog(QDialog):
     def __init__(self, parent=None):
@@ -14,85 +57,97 @@ class RatingDialog(QDialog):
         self.setModal(True)
         self.setMinimumSize(900, 700)
 
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
 
-        album_group = QGroupBox("Выберите альбом")
-        album_group.setMaximumHeight(80)
-        album_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
-        album_layout = QHBoxLayout(album_group)
-        album_layout.setContentsMargins(10, 10, 10, 10)
-        album_layout.setSpacing(10)
+        self.setup_tab = QWidget()
+        self.tab_widget.addTab(self.setup_tab, "Настройка")
+        self.setup_ui()
 
-        self.album_combo = QComboBox()
-        self.load_albums()
-        self.album_combo.currentIndexChanged.connect(self.on_album_selected)
+        self.rating_tab = QWidget()
+        self.tab_widget.addTab(self.rating_tab, "Оценка")
+        self.rating_ui()
 
-        album_layout.addWidget(QLabel("Альбом:"))
-        album_layout.addWidget(self.album_combo)
-        layout.addWidget(album_group)
+        button_layout = QHBoxLayout()
+        self.save_btn = QPushButton("Сохранить")
+        self.save_btn.clicked.connect(self.save_ratings)
+        self.cancel_btn = QPushButton("Отмена")
+        self.cancel_btn.clicked.connect(self.confirm_cancel)
+        button_layout.addStretch()
+        button_layout.addWidget(self.save_btn)
+        button_layout.addWidget(self.cancel_btn)
+        main_layout.addLayout(button_layout)
 
-        self.participants_group = QGroupBox("Участники (от 2 до 6)")
-        self.participants_layout = QVBoxLayout(self.participants_group)
         self.participant_fields = []
-        btn_add_participant = QPushButton("Добавить участника")
-        btn_add_participant.clicked.connect(self.add_participant)
-        self.participants_layout.addWidget(btn_add_participant)
-        layout.addWidget(self.participants_group)
-
-        self.ratings_group = QGroupBox("Оценки треков")
-        self.ratings_layout = QVBoxLayout(self.ratings_group)
         self.ratings_table = None
-        layout.addWidget(self.ratings_group)
-
-        self.info_label = QLabel("")
-        layout.addWidget(self.info_label)
-
-        btn_layout = QHBoxLayout()
-        btn_calc = QPushButton("Пересчитать средние")
-        btn_calc.clicked.connect(self.update_preview)
-        btn_save = QPushButton("Сохранить оценки")
-        btn_save.clicked.connect(self.save_ratings)
-        btn_cancel = QPushButton("Отмена")
-        btn_cancel.clicked.connect(self.reject)
-        btn_refresh = QPushButton("Обновить")
-        btn_refresh.clicked.connect(self.update_ratings_table)
-        btn_layout.addWidget(btn_refresh)
-        btn_layout.addWidget(btn_calc)
-        btn_layout.addWidget(btn_save)
-        btn_layout.addWidget(btn_cancel)
-        layout.addLayout(btn_layout)
+        self.current_album_id = None
 
         self.add_participant()
-        self.add_participant()
-        self.update_ratings_table()
+        self.load_albums()
+
+        self.album_combo.currentIndexChanged.connect(self.on_album_selected)
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self.setup_tab)
+        album_layout = QHBoxLayout()
+        album_layout.addWidget(QLabel("Выберите альбом:"))
+        self.album_combo = QComboBox()
+        self.album_combo.setEditable(True)
+        album_layout.addWidget(self.album_combo)
+        layout.addLayout(album_layout)
+
+        layout.addWidget(QLabel("Участники:"))
+        self.participants_widget = QWidget()
+        self.participants_layout = QVBoxLayout(self.participants_widget)
+        self.participants_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.participants_widget)
+
+        btn_add = QPushButton("Добавить участника")
+        btn_add.clicked.connect(lambda: self.add_participant())
+        layout.addWidget(btn_add)
+        layout.addStretch()
+
+    def rating_ui(self):
+        self.rating_tab_layout = QVBoxLayout(self.rating_tab)
+        self.ratings_container = None
 
     def load_albums(self):
         albums = db.get_albums_without_ratings()
         self.album_combo.clear()
-        self.album_combo.addItem("-- Выберите альбом --", None)
         for album_id, title, year, cover_path in albums:
             text = title
             if year:
                 text += f" ({year})"
             self.album_combo.addItem(text, album_id)
+        if self.album_combo.count() > 0:
+            self.current_album_id = self.album_combo.currentData()
+            self.update_ratings_table()
 
     def on_album_selected(self):
+        self.current_album_id = self.album_combo.currentData()
         self.update_ratings_table()
 
-    def add_participant(self):
-        if len(self.participant_fields) >= 6:
-            QMessageBox.warning(self, "Ограничение", "Нельзя добавить более 6 участников.")
+    def on_tab_changed(self, index):
+        if index == 1:
+            self.update_ratings_table()
+
+    def add_participant(self, name=""):
+        if len(self.participant_fields) >= 9:
+            QMessageBox.warning(self, "Ограничение", "Нельзя добавить более 9 участников.")
             return
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         edit = QLineEdit()
         edit.setPlaceholderText(f"Участник {len(self.participant_fields)+1}")
+        edit.setText(name)
         btn_remove = QPushButton("✖")
         btn_remove.setFixedWidth(30)
         btn_remove.clicked.connect(lambda: self.remove_participant(row_widget))
         row_layout.addWidget(edit)
         row_layout.addWidget(btn_remove)
-        self.participants_layout.insertWidget(self.participants_layout.count() - 1, row_widget)
+        self.participants_layout.addWidget(row_widget)
         self.participant_fields.append(edit)
         self.update_ratings_table()
 
@@ -106,36 +161,38 @@ class RatingDialog(QDialog):
         self.update_ratings_table()
 
     def get_tracks(self):
-        album_id = self.album_combo.currentData()
-        if not album_id:
+        if not self.current_album_id:
             return []
         conn = sqlite3.connect(db.DB_NAME)
         cur = conn.cursor()
-        cur.execute("SELECT id, title, track_number FROM tracks WHERE album_id=? ORDER BY track_number", (album_id,))
+        cur.execute("SELECT id, title, track_number FROM tracks WHERE album_id=? ORDER BY track_number", (self.current_album_id,))
         tracks = cur.fetchall()
         conn.close()
         return tracks
 
     def update_ratings_table(self):
-        if self.ratings_table is not None:
-            self.ratings_table.deleteLater()
-            self.ratings_table = None
-        while self.ratings_layout.count():
-            child = self.ratings_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        if self.ratings_container is not None:
+            self.rating_tab_layout.removeWidget(self.ratings_container)
+            self.ratings_container.deleteLater()
+            self.ratings_container = None
+
+        self.ratings_container = QWidget()
+        container_layout = QVBoxLayout(self.ratings_container)
+        self.rating_tab_layout.addWidget(self.ratings_container)
 
         tracks = self.get_tracks()
         participants = [edit.text().strip() for edit in self.participant_fields if edit.text().strip()]
+
         if not tracks:
             label = QLabel("Для выбранного альбома нет треков. Сначала добавьте треки в альбом.")
-            self.ratings_layout.addWidget(label)
-            self.ratings_table = label
+            container_layout.addWidget(label)
+            self.ratings_table = None
             return
-        if len(participants) < 2:
-            label = QLabel("Добавьте минимум 2 участника для оценивания.")
-            self.ratings_layout.addWidget(label)
-            self.ratings_table = label
+
+        if len(participants) == 0:
+            label = QLabel("Добавьте хотя бы одного участника.")
+            container_layout.addWidget(label)
+            self.ratings_table = None
             return
 
         table = QTableWidget(len(tracks), len(participants))
@@ -145,56 +202,26 @@ class RatingDialog(QDialog):
 
         for i in range(len(tracks)):
             for j in range(len(participants)):
-                spin = QDoubleSpinBox()
-                spin.setRange(0, 11)
-                spin.setSingleStep(0.1)
-                spin.setDecimals(1)
-                spin.setValue(0.0)
-                spin.valueChanged.connect(self.update_preview)
+                spin = RatingSpinBox(j, table)
                 table.setCellWidget(i, j, spin)
 
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.ratings_table = table
-        self.ratings_layout.addWidget(table)
-        self.update_preview()
-
-    def update_preview(self):
-        if not isinstance(self.ratings_table, QTableWidget):
-            return
-        n_tracks = self.ratings_table.rowCount()
-        n_parts = self.ratings_table.columnCount()
-        if n_tracks == 0 or n_parts == 0:
-            return
-
-        participant_sums = [0.0] * n_parts
-        participant_counts = [0] * n_parts
-        for i in range(n_tracks):
-            for j in range(n_parts):
-                spin = self.ratings_table.cellWidget(i, j)
-                if spin:
-                    val = spin.value()
-                    participant_sums[j] += val
-                    participant_counts[j] += 1
-
-        participant_averages = []
-        for j in range(n_parts):
-            avg = participant_sums[j] / participant_counts[j] if participant_counts[j] > 0 else 0.0
-            participant_averages.append(avg)
-        overall = sum(participant_averages) / n_parts if n_parts > 0 else 0.0
-
-        names = [self.ratings_table.horizontalHeaderItem(j).text() for j in range(n_parts)]
-        avg_text = ", ".join([f"{names[j]}: {participant_averages[j]:.2f}" for j in range(n_parts)])
-        self.info_label.setText(f"Средние по участникам: {avg_text}  |  Общая оценка альбома: {overall:.2f}")
+        container_layout.addWidget(table)
 
     def save_ratings(self):
-        album_id = self.album_combo.currentData()
+        if not show_question(self, "Подтверждение", "Сохранить оценки?"):
+            return
+
+        album_id = self.current_album_id
         if not album_id:
             QMessageBox.warning(self, "Ошибка", "Выберите альбом.")
             return
+
         participants = [edit.text().strip() for edit in self.participant_fields]
-        if len(participants) < 2:
-            QMessageBox.warning(self, "Ошибка", "Добавьте минимум 2 участника.")
+        if len(participants) == 0:
+            QMessageBox.warning(self, "Ошибка", "Добавьте хотя бы одного участника.")
             return
         if any(not name for name in participants):
             QMessageBox.warning(self, "Ошибка", "Имена участников не могут быть пустыми.")
@@ -202,11 +229,11 @@ class RatingDialog(QDialog):
 
         tracks = self.get_tracks()
         if not tracks:
-            QMessageBox.warning(self, "Ошибка", "В альбоме нет треков. Добавьте треки через редактирование альбома.")
+            QMessageBox.warning(self, "Ошибка", "В альбоме нет треков.")
             return
 
         if not isinstance(self.ratings_table, QTableWidget):
-            QMessageBox.warning(self, "Ошибка", "Таблица оценок не создана. Проверьте треки и участников.")
+            QMessageBox.warning(self, "Ошибка", "Таблица оценок не создана.")
             return
 
         n_tracks = len(tracks)
@@ -219,7 +246,7 @@ class RatingDialog(QDialog):
                     eleven_counts[j] += 1
         for j, cnt in enumerate(eleven_counts):
             if cnt > 1:
-                QMessageBox.warning(self, "Ошибка", f"Участник {participants[j]} использовал оценку 11 {cnt} раз. Разрешена только одна 11 на участника за альбом.")
+                QMessageBox.warning(self, "Ошибка", f"Участник {participants[j]} использовал оценку 11 {cnt} раз. Разрешена только одна 11.")
                 return
 
         conn = sqlite3.connect(db.DB_NAME)
@@ -262,3 +289,7 @@ class RatingDialog(QDialog):
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить оценки: {str(e)}")
         finally:
             conn.close()
+
+    def confirm_cancel(self):
+        if show_question(self, "Подтверждение", "Отменить изменения? Все несохранённые данные будут потеряны."):
+            self.reject()

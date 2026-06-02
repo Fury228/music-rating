@@ -18,6 +18,7 @@ DB_NAME = os.path.join(get_app_data_dir(), "music_ratings.db")
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS artists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +26,14 @@ def init_db():
             photo_path TEXT
         )
     """)
+
+    cur.execute("PRAGMA table_info(artists)")
+    existing_columns = [col[1] for col in cur.fetchall()]
+    if 'age' not in existing_columns:
+        cur.execute("ALTER TABLE artists ADD COLUMN age INTEGER")
+    if 'main_genre' not in existing_columns:
+        cur.execute("ALTER TABLE artists ADD COLUMN main_genre TEXT")
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS albums (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,18 +88,20 @@ def init_db():
 def get_all_artists():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT id, name, photo_path FROM artists ORDER BY name")
+    cur.execute("SELECT id, name, photo_path, age, main_genre FROM artists ORDER BY name")
     rows = cur.fetchall()
     conn.close()
     return rows
 
-def add_or_update_artist(artist_id, name, photo_path):
+def add_or_update_artist(artist_id, name, photo_path, age=None, main_genre=None):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     if artist_id is None:
-        cur.execute("INSERT INTO artists (name, photo_path) VALUES (?, ?)", (name, photo_path))
+        cur.execute("INSERT INTO artists (name, photo_path, age, main_genre) VALUES (?, ?, ?, ?)",
+                    (name, photo_path, age, main_genre))
     else:
-        cur.execute("UPDATE artists SET name=?, photo_path=? WHERE id=?", (name, photo_path, artist_id))
+        cur.execute("UPDATE artists SET name=?, photo_path=?, age=?, main_genre=? WHERE id=?",
+                    (name, photo_path, age, main_genre, artist_id))
     conn.commit()
     conn.close()
 
@@ -104,7 +115,7 @@ def delete_artist(artist_id):
 def get_artist_by_id(artist_id):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT id, name, photo_path FROM artists WHERE id=?", (artist_id,))
+    cur.execute("SELECT id, name, photo_path, age, main_genre FROM artists WHERE id=?", (artist_id,))
     row = cur.fetchone()
     conn.close()
     return row
@@ -267,3 +278,27 @@ def get_album_rating_data(album_id):
         "tracks": tracks,
         "ratings": ratings
     }
+
+def artist_exists(name):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM artists WHERE name = ?", (name,))
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+def get_most_common_genre_for_artist(artist_id):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT a.genre, COUNT(*) as cnt
+        FROM albums a
+        JOIN album_artists aa ON a.id = aa.album_id
+        WHERE aa.artist_id = ? AND a.genre IS NOT NULL AND a.genre != ''
+        GROUP BY a.genre
+        ORDER BY cnt DESC
+        LIMIT 1
+    """, (artist_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None

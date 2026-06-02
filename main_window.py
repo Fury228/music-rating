@@ -3,7 +3,7 @@ import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QMenu
+    QMenu
 )
 from PySide6.QtGui import QIcon
 from PySide6 import QtCore
@@ -14,15 +14,12 @@ from album_dialog import AlbumDialog
 from rating_dialog import RatingDialog
 from artist_albums_dialog import ArtistAlbumsDialog
 from album_rating_view import AlbumRatingViewDialog
+from custom_dialogs import show_question
 
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
-
-from PySide6.QtWidgets import QWidget
-from PySide6.QtGui import QPainter, QLinearGradient, QColor
-from PySide6.QtCore import QTimer
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -34,7 +31,6 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-
 
         btn_layout = QHBoxLayout()
         self.btn_artists = QPushButton("Артисты")
@@ -48,15 +44,22 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.btn_rate)
         layout.addLayout(btn_layout)
 
+        add_buttons_layout = QHBoxLayout()
+        self.btn_add_artist = QPushButton("+ Добавить артиста")
+        self.btn_add_artist.clicked.connect(self.add_artist)
+        self.btn_add_artist.setVisible(False)
+        self.btn_add_album = QPushButton("+ Добавить альбом")
+        self.btn_add_album.clicked.connect(self.add_album)
+        self.btn_add_album.setVisible(False)
+        add_buttons_layout.addWidget(self.btn_add_artist)
+        add_buttons_layout.addWidget(self.btn_add_album)
+        add_buttons_layout.addStretch()
+        layout.addLayout(add_buttons_layout)
+
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Поиск (по артисту, альбому или треку)...")
         self.search_edit.textChanged.connect(self.refresh)
         layout.addWidget(self.search_edit)
-
-        self.btn_add = QPushButton("+ Добавить альбом")
-        self.btn_add.clicked.connect(self.add_album)
-        self.btn_add.setVisible(False)
-        layout.addWidget(self.btn_add)
 
         self.list_widget = QListWidget()
         self.list_widget.setIconSize(QtCore.QSize(64, 64))
@@ -67,11 +70,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.list_widget)
 
         self.current_mode = "artists"
+        self.switch_mode("artists")
         self.refresh()
 
     def switch_mode(self, mode):
         self.current_mode = mode
-        self.btn_add.setVisible(mode == "albums")
+        self.btn_add_artist.setVisible(mode == "artists")
+        self.btn_add_album.setVisible(mode == "albums")
         self.refresh()
 
     def refresh(self):
@@ -79,13 +84,24 @@ class MainWindow(QMainWindow):
         self.list_widget.clear()
         if self.current_mode == "artists":
             artists = db.get_all_artists()
-            for artist_id, name, photo_path in artists:
+            for artist_id, name, photo_path, age, main_genre in artists:
                 if query in name.lower():
                     item = QListWidgetItem()
                     pixmap = img.load_scaled_image(photo_path, size=64)
                     item.setIcon(QIcon(pixmap))
-                    item.setText(name)
-                    item.setData(QtCore.Qt.UserRole, {"id": artist_id, "type": "artist"})
+                    lines = [name]
+                    if age:
+                        lines[0] = f"{name}, {age}"
+                    if main_genre:
+                        lines.append(main_genre)
+                    display_text = "\n".join(lines)
+
+                    item.setText(display_text)
+                    item.setData(QtCore.Qt.UserRole, {
+                        "id": artist_id,
+                        "type": "artist",
+                        "name": name
+                    })
                     self.list_widget.addItem(item)
         else:
             albums = db.search_albums(query)
@@ -93,14 +109,30 @@ class MainWindow(QMainWindow):
                 item = QListWidgetItem()
                 pixmap = img.load_scaled_image(cover_path, size=64)
                 item.setIcon(QIcon(pixmap))
-                text = title
+                top_text = title
                 if year:
-                    text += f" ({year})"
+                    top_text += f" ({year})"
                 if rating is not None:
-                    text += f" ★ {rating:.2f}"
-                item.setText(text)
+                    top_text += f" ★ {rating:.2f}"
+                artists = db.get_album_artists(album_id)
+                artist_names = ", ".join([a[1] for a in artists]) if artists else ""
+                if artist_names:
+                    display_text = f"{top_text}\n{artist_names}"
+                else:
+                    display_text = top_text
+                item.setText(display_text)
                 item.setData(QtCore.Qt.UserRole, {"id": album_id, "type": "album"})
                 self.list_widget.addItem(item)
+
+    def add_artist(self):
+        dialog = ArtistDialog(artist_id=None, parent=self)
+        if dialog.exec():
+            self.refresh()
+
+    def add_album(self):
+        dialog = AlbumDialog(album_id=None, parent=self)
+        if dialog.exec():
+            self.refresh()
 
     def show_context_menu(self, position):
         item = self.list_widget.itemAt(position)
@@ -128,37 +160,22 @@ class MainWindow(QMainWindow):
 
     def delete_item(self, data):
         if data["type"] == "artist":
-            reply = QMessageBox.question(
-                self, "Удаление",
-                f"Удалить артиста и все его альбомы?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
+            if show_question(self, "Удаление", "Удалить артиста и все его альбомы?"):
                 db.delete_artist(data["id"])
                 self.refresh()
         else:
-            reply = QMessageBox.question(
-                self, "Удаление",
-                "Удалить альбом и все его оценки?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
+            if show_question(self, "Удаление", "Удалить альбом и все его оценки?"):
                 db.delete_album(data["id"])
                 self.refresh()
 
     def on_item_double_click(self, item):
         data = item.data(QtCore.Qt.UserRole)
         if data["type"] == "artist":
-            dialog = ArtistAlbumsDialog(data["id"], item.text(), self)
+            dialog = ArtistAlbumsDialog(data["id"], data["name"], self)
             dialog.exec()
         else:
             dialog = AlbumRatingViewDialog(data["id"], self)
             dialog.exec()
-
-    def add_album(self):
-        dialog = AlbumDialog(album_id=None, parent=self)
-        if dialog.exec():
-            self.refresh()
 
     def open_rating(self):
         dialog = RatingDialog(self)
