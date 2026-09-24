@@ -1,45 +1,42 @@
 import sys
-import os
-import tempfile
-from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtCore import QLockFile
-import database as db
-from PySide6.QtGui import QFont
+from pathlib import Path
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QPalette, QColor
 
-def resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+from database.connection import open_connection
+from database.migrations import migrate
+from ui.main_window import MainWindow
 
-def load_stylesheet(app):
-    style_path = resource_path("styles.qss")
-    if os.path.exists(style_path):
-        with open(style_path, "r", encoding="utf-8") as f:
-            app.setStyleSheet(f.read())
-    else:
-        app.setStyleSheet("""
-            QWidget { background-color: #2b2b2b; color: #f0f0f0; }
-            QPushButton { background-color: #3c3c3c; border: 1px solid #555; border-radius: 4px; padding: 4px; }
-            QPushButton:hover { background-color: #4a4a4a; }
-        """)
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "data" / "music_rating.sqlite3"
 
 def main():
-    lock_file = QLockFile(os.path.join(tempfile.gettempdir(), "MusicRatingApp.lock"))
-    if not lock_file.tryLock(0):
-        QMessageBox.critical(None, "Уже запущено", "Приложение уже запущено.")
-        sys.exit(1)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = open_connection(DB_PATH)
+    migrate(conn)
 
-    db.init_db()
-    
     app = QApplication(sys.argv)
-    app.setFont(QFont("Segoe UI", 9))
-    load_stylesheet(app) 
-    
-    from main_window import MainWindow
-    window = MainWindow()
+    app.setStyle("Fusion")
+    app.setApplicationName("MusicRating")
+
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#121417"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#F2F4F7"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#1A1E24"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#20252C"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#F2F4F7"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#252B33"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#FFFFFF"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#3A4654"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#777F8B"))
+    app.setPalette(palette)
+    window = MainWindow(conn)
     window.show()
-    
-    sys.exit(app.exec())
+
+    exit_code = app.exec()
+    conn.close()
+    return exit_code
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
